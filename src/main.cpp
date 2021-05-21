@@ -1,9 +1,9 @@
 #define _CRT_SECURE_NO_WARNINGS
+#define _WINSOCKAPI_ // Prevent includsion of winsock.h in windows.h
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 
 #define DIV_RATIO 1000
 
-#include <winsock2.h>
 #include <windows.h>
 #include <comutil.h>
 #include <stdio.h>
@@ -17,6 +17,7 @@
 
 #define WS_VER_MAJOR 2
 #define WS_VER_MINOR 2
+#include <winsock2.h>
 #include <ws2tcpip.h>
 #pragma comment(lib, "ws2_32.lib")
 
@@ -208,7 +209,7 @@ public:
             host_ip = gethostbyname(udp.host);
             if (NULL == host_ip)
             {
-                host_ip = gethostbyaddr(udp.host, strlen(udp.host), AF_INET);
+                host_ip = gethostbyaddr(udp.host, (int)strlen(udp.host), AF_INET);
                 if (NULL == host_ip)
                 {
                     fprintf(stderr, "%s:%d ERROR! failed to resolv [%s]\n", __FUNCTION__, __LINE__, udp.host);
@@ -249,7 +250,8 @@ public:
             if (ntohl(udp.addr.sin_addr.s_addr) > multicast_a && udp.addr.sin_addr.s_addr < multicast_b)
             {
                 struct in_addr iaddr;
-                unsigned char ttl = 32;
+                //unsigned char ttl = 32;
+                unsigned char ttl = 0; //node - local(not forwarded outside the current host)
                 unsigned char one = 1;
 
                 memset(&iaddr, 0, sizeof(struct in_addr));
@@ -285,7 +287,7 @@ public:
             };
         };
 
-        /* open udp socket */
+        /* open tcp socket */
         if (tcp.port && tcp.host[0])
         {
             char* tmp;
@@ -297,7 +299,7 @@ public:
             host_ip = gethostbyname(tcp.host);
             if (NULL == host_ip)
             {
-                host_ip = gethostbyaddr(tcp.host, strlen(tcp.host), AF_INET);
+                host_ip = gethostbyaddr(tcp.host, (int)strlen(tcp.host), AF_INET);
                 if (NULL == host_ip)
                 {
                     fprintf(stderr, "%s:%d ERROR! failed to resolv [%s]\n", __FUNCTION__, __LINE__, udp.host);
