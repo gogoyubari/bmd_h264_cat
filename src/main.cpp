@@ -11,6 +11,8 @@
 #include <io.h>
 #include <fcntl.h>
 #include <time.h>
+#include <conio.h>
+#include <ctype.h>
 
 #include <Mmsystem.h>
 #pragma comment(lib, "winmm.lib")
@@ -79,6 +81,7 @@ public:
         FILE* descriptor;
         FILE* stdout_descriptor;
         char filename[PATH_MAX];
+        char format[PATH_MAX];
     } file;
 
     int start()
@@ -344,6 +347,39 @@ public:
 
         return 0;
     };
+    
+    int split()
+    {
+        if(!strcmp(file.filename, "-"))
+        {
+           return 0;
+        }
+        else if(file.format[0])
+        {
+            if (file.descriptor)
+                fclose(file.descriptor);
+
+            time_t ltime;
+            struct tm *rtime;
+
+            /* check if log file should be rotated */
+            time(&ltime);
+
+            /* date to filename */
+            rtime = localtime(&ltime);
+            strftime(file.filename, MAX_PATH, file.format, rtime);
+
+            file.descriptor = fopen(file.filename, "wb");
+            if (!file.descriptor)
+            {
+                fprintf(stderr, "%s:%d ERROR! Failed to open file [%s]\n", __FUNCTION__, __LINE__, file.filename);
+                return -1;
+            };
+            fprintf(stderr, "%s: data will be saved to file [%s]\n", __FUNCTION__, file.filename);
+        }
+
+        return 0;
+    };
 
     static void print_usage()
     {
@@ -370,6 +406,7 @@ public:
             "    -src-height <INT>\n"
             "    -dst-width <INT>   destination width\n"
             "    -dst-height <INT>  destination height\n"
+            "    -segment <STR>     save as a segmented file in strftime format\n"
             "    -savefile          save files timestamped\n"
             "    -udp-host <STR>    host where sent UDP packet\n"
             "    -udp-port <INT>    port where sent UDP packet\n"
@@ -432,6 +469,21 @@ public:
             else PARAM1_CHAR_NA("-tcp-host", tcp.host)
             else PARAM1_INT_NA("-tcp-port", tcp.port)
             else PARAM1_INT_NA("-tcp-sndbuf", tcp.sndbuf)
+            else if (!strcmp("-segment", argv[i]))
+            {
+                i++;  
+                strncpy(file.format, argv[i], PATH_MAX); //"PREFIX_%Y%m%d-%H%M%S.ts"
+
+                time_t ltime;
+                struct tm *rtime;
+
+                /* check if log file should be rotated */
+                time(&ltime);
+
+                /* date to filename */
+                rtime = localtime(&ltime);
+                strftime(file.filename, MAX_PATH, file.format, rtime);
+            }
             else if (!strcmp("-savefile", argv[i]))
             {
                 time_t ltime;
@@ -1154,7 +1206,18 @@ int main(int argc, char** argv)
     {
         strm->start();
 
-        getc(stdin);
+        while (1)
+        {
+            int key = toupper( _getch() );
+            if (key == 'S')
+            {
+                strm->split();
+            }
+            else if (key == 'Q')
+            {
+                break;
+            }            
+        }        
 
         strm->stop();
 
