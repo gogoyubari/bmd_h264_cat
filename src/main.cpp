@@ -32,6 +32,7 @@
 #define PATH_MAX 1024
 #endif
 
+#include "BMDStreamingDeviceMode.h"
 #include "BMDStreamingEncodingFrameRate.h"
 #include "BMDStreamingH264EntropyCoding.h"
 #include "BMDStreamingH264Level.h"
@@ -485,6 +486,9 @@ public:
         SAFE_RELEASE(m_streamingDiscovery);
     };
 
+public:
+    // IUknown
+    // We need to correctly implement QueryInterface, but not the AddRef/Release
     virtual HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, LPVOID* ppv)
     {
         HRESULT result = E_NOINTERFACE;
@@ -513,13 +517,10 @@ public:
         }
 
         return result;
-    }
+    };
 
-public:
-    // IUknown
-    // We need to correctly implement QueryInterface, but not the AddRef/Release
-    virtual ULONG STDMETHODCALLTYPE AddRef() { return 1; }
-    virtual ULONG STDMETHODCALLTYPE Release() { return 1; }
+    virtual ULONG STDMETHODCALLTYPE AddRef() { return 1; };
+    virtual ULONG STDMETHODCALLTYPE Release() { return 1; };
 
 public:
     // IBMDStreamingDeviceNotificationCallback
@@ -599,14 +600,15 @@ public:
 
     virtual HRESULT STDMETHODCALLTYPE StreamingDeviceModeChanged(IDeckLink* device, BMDStreamingDeviceMode mode)
     {
-        fprintf(stderr, "%s!\n", __FUNCTION__);
+        fprintf(stderr, "%s: [%s]\n", __FUNCTION__,
+            BMDStreamingDeviceMode_to_str((BMDStreamingDeviceMode)mode));
 
         if (mode == m_deviceMode)
             return S_OK;
 
         m_deviceMode = mode;
 
-        UpdateUIForModeChanges();
+        UpdateUIForDeviceModeChanges();
 
         return S_OK;
     };
@@ -1016,21 +1018,33 @@ public:
 
             SAFE_RELEASE(currentVideoEncodingMode);
         };
-
-        /* start capture */
-        m_streamingDeviceInput->StartCapture();
-        m_playing = true;
     };
 
-    void							UpdateUIForNoDevice();
-    void							UpdateUIForModeChanges()
+    void UpdateUIForNoDevice()
     {
         fprintf(stderr, "%s\n", __FUNCTION__);
     };
-    void							UpdateEncodingPresetsUIForInputMode();
-    void							EncodingPresetsRemoveItems();
+    void UpdateUIForDeviceModeChanges()
+    {
+        /* start capture */
+        if (m_deviceMode == bmdStreamingDeviceIdle && !m_playing)
+        {
+            m_streamingDeviceInput->StartCapture();
+            m_playing = true;
+            fprintf(stderr, "%s: StartCapture\n", __FUNCTION__);
+        }
+    };
+    void UpdateEncodingPresetsUIForInputMode()
+    {
+        fprintf(stderr, "%s\n", __FUNCTION__);
+    };
+    void EncodingPresetsRemoveItems()
+    {
+        fprintf(stderr, "%s\n", __FUNCTION__);
+    };
 
 public:
+    // IBMDStreamingH264InputCallback
     virtual HRESULT STDMETHODCALLTYPE H264NALPacketArrived(IBMDStreamingH264NALPacket* nalPacket)
     {
 #if 0
@@ -1109,9 +1123,17 @@ public:
     {
         fprintf(stderr, "%s!\n", __FUNCTION__);
 
-        UpdateUIForModeChanges();
+        UpdateUIForInputModeChanges();
 
         return S_OK;
+    };
+    void UpdateUIForInputModeChanges()
+    {
+        if (m_deviceMode == bmdStreamingDeviceEncoding && !m_playing)
+        {
+            m_streamingDeviceInput->StopCapture();
+            fprintf(stderr, "%s: StopCapture\n", __FUNCTION__);
+        }
     };
 };
 
