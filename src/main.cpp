@@ -1019,7 +1019,7 @@ public:
             SAFE_RELEASE(currentVideoEncodingMode);
         };
     };
-
+    
     void UpdateUIForNoDevice()
     {
         fprintf(stderr, "%s\n", __FUNCTION__);
@@ -1139,6 +1139,12 @@ public:
 
 int main(int argc, char** argv)
 {
+    //Disable QuickEditMode
+    DWORD dwMode;
+    HANDLE hConsoleHandle = GetStdHandle(STD_INPUT_HANDLE);
+    GetConsoleMode(hConsoleHandle, &dwMode);
+    SetConsoleMode(hConsoleHandle, dwMode & ~ENABLE_QUICK_EDIT_MODE);
+
     CStreamingOutput* strm;
 
     fprintf(stderr, "bmd_h264_cat built on " __DATE__ " " __TIME__ "\n");
