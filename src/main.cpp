@@ -1209,11 +1209,12 @@ int main(int argc, char** argv)
         while (1)
         {
             int key = toupper( _getch() );
+            int esc = 0x1b;
             if (key == 'S')
             {
                 strm->split();
             }
-            else if (key == 'Q')
+            else if (key == 'Q' || key == esc)
             {
                 break;
             }            
