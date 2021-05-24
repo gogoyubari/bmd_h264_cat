@@ -356,26 +356,28 @@ public:
         }
         else if(file.format[0])
         {
-            if (file.descriptor)
+            if (file.descriptor) 
+            {
                 fclose(file.descriptor);
 
-            time_t ltime;
-            struct tm *rtime;
+                time_t ltime;
+                struct tm* rtime;
 
-            /* check if log file should be rotated */
-            time(&ltime);
+                /* check if log file should be rotated */
+                time(&ltime);
 
-            /* date to filename */
-            rtime = localtime(&ltime);
-            strftime(file.filename, MAX_PATH, file.format, rtime);
+                /* date to filename */
+                rtime = localtime(&ltime);
+                strftime(file.filename, MAX_PATH, file.format, rtime);
 
-            file.descriptor = fopen(file.filename, "wb");
-            if (!file.descriptor)
-            {
-                fprintf(stderr, "%s:%d ERROR! Failed to open file [%s]\n", __FUNCTION__, __LINE__, file.filename);
-                return -1;
-            };
-            fprintf(stderr, "%s: data will be saved to file [%s]\n", __FUNCTION__, file.filename);
+                file.descriptor = fopen(file.filename, "wb");
+                if (!file.descriptor)
+                {
+                    fprintf(stderr, "%s:%d ERROR! Failed to open file [%s]\n", __FUNCTION__, __LINE__, file.filename);
+                    return -1;
+                };
+                fprintf(stderr, "%s: data will be saved to file [%s]\n", __FUNCTION__, file.filename);
+            }
         }
 
         return 0;
