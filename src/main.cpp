@@ -47,7 +47,7 @@ class CStreamingOutput :
     public IBMDStreamingH264InputCallback
 {
 public:
-    int p1;
+    unsigned int p1;
     BOOL m_playing;
     IDeckLink* m_streamingDevice;
     IBMDStreamingDiscovery*	m_streamingDiscovery;
