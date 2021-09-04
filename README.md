@@ -36,6 +36,8 @@ Where args are:
     -src-height &lt;INT&gt;
     -dst-width &lt;INT&gt;   destination width
     -dst-height &lt;INT&gt;  destination height
+    -segment &lt;STR&gt;     save segmented files, strftime format
+    -time-split &lt;STR&gt;  split by time, cron expressions
     -savefile          save files timestamped
     -udp-host &lt;STR&gt;    host where sent UDP packet
     -udp-port &lt;INT&gt;    port where sent UDP packet

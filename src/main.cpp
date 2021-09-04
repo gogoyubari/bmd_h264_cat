@@ -4,15 +4,23 @@
 
 #define DIV_RATIO 1000
 
-#include <windows.h>
 #include <comutil.h>
-#include <stdio.h>
-#include <errno.h>
-#include <io.h>
-#include <fcntl.h>
-#include <time.h>
 #include <conio.h>
 #include <ctype.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <io.h>
+#include <iomanip>
+#include <ios>
+#include <iostream>
+#include <regex>
+#include <sstream>
+#include <stdio.h>
+#include <string>
+#include <thread>
+#include <time.h>
+#include <vector>
+#include <windows.h>
 
 #include <Mmsystem.h>
 #pragma comment(lib, "winmm.lib")
@@ -42,23 +50,22 @@
 
 static int f_socket_init = 0;
 
-class CStreamingOutput :
-    public IBMDStreamingDeviceNotificationCallback,
-    public IBMDStreamingH264InputCallback
+class CStreamingOutput : public IBMDStreamingDeviceNotificationCallback,
+                         public IBMDStreamingH264InputCallback
 {
 public:
     size_t p1;
     BOOL m_playing;
-    IDeckLink* m_streamingDevice;
-    IBMDStreamingDiscovery*	m_streamingDiscovery;
-    IBMDStreamingDeviceInput* m_streamingDeviceInput;
+    IDeckLink *m_streamingDevice;
+    IBMDStreamingDiscovery *m_streamingDiscovery;
+    IBMDStreamingDeviceInput *m_streamingDeviceInput;
     BMDStreamingDeviceMode m_deviceMode;
     BMDVideoConnection m_inputConnector;
     BMDDisplayMode m_inputMode;
 
     int m_AudioBitrateKbs, m_VideoBitrateKbs, m_PresetAlter;
     int m_SrcX, m_SrcY, m_SrcWidth, m_SrcHeight, m_DstWidth, m_DstHeight, m_AudioSampleRate, m_AudioChannelCount;
-    char m_Preset[PATH_MAX], m_Profile[PATH_MAX], m_Entropy[PATH_MAX], m_FrameRate[PATH_MAX], m_Level[PATH_MAX];
+    char m_Preset[PATH_MAX], m_Profile[PATH_MAX], m_Entropy[PATH_MAX], m_FrameRate[PATH_MAX], m_Level[PATH_MAX], m_Expressions[PATH_MAX];
     struct
     {
         char host[PATH_MAX];
@@ -78,11 +85,115 @@ public:
     } udp;
     struct
     {
-        FILE* descriptor;
-        FILE* stdout_descriptor;
+        FILE *descriptor;
+        FILE *stdout_descriptor;
         char filename[PATH_MAX];
         char format[PATH_MAX];
     } file;
+
+    std::vector<std::string> split_string(const std::string &s, char delim)
+    {
+        std::vector<std::string> elems;
+        std::string item;
+        for (char ch : s)
+        {
+            if (ch == delim)
+            {
+                if (!item.empty())
+                    elems.push_back(item);
+                item.clear();
+            }
+            else
+            {
+                item += ch;
+            }
+        }
+        if (!item.empty())
+            elems.push_back(item);
+        return elems;
+    };
+
+    std::string join_string(const std::vector<std::string> &v, const char *delim = 0)
+    {
+        std::string s;
+        if (!v.empty())
+        {
+            s += v[0];
+            for (decltype(v.size()) i = 1, c = v.size(); i < c; ++i)
+            {
+                if (delim)
+                    s += delim;
+                s += v[i];
+            }
+        }
+        return s;
+    };
+
+    bool checktime()
+    {
+        time_t ltime;
+        struct tm *rtime;
+        char now[10];
+
+        time(&ltime);
+        rtime = localtime(&ltime);
+        strftime(now, MAX_PATH, "%M%H%d%m0%w", rtime);
+
+        auto elems = split_string(m_Expressions, ' ');
+
+        std::regex regex(R"(\*)");
+        elems[0] = std::regex_replace(elems[0], regex, "0-59");
+        elems[1] = std::regex_replace(elems[1], regex, "0-23");
+        elems[2] = std::regex_replace(elems[2], regex, "1-31");
+        elems[3] = std::regex_replace(elems[3], regex, "1-12");
+        elems[4] = std::regex_replace(elems[4], regex, "0-6");
+
+        std::string regstr;
+        for (auto elem = elems.begin(); elem != elems.end(); ++elem)
+        {
+            std::vector<std::string> regelems;
+
+            auto subelems = split_string(*elem, ',');
+            for (auto subelem = subelems.begin(); subelem != subelems.end(); ++subelem)
+            {
+                int begin, end, inc;
+
+                auto v = split_string(*subelem, '/');
+                v.size() == 1 ? inc = 1 : inc = std::stoi(v[1]);
+
+                auto range = split_string(v[0], '-');
+                begin = std::stoi(range[0]);
+                range.size() == 1 ? end = std::stoi(range[0]) : end = std::stoi(range[1]);
+
+                for (int i = begin; i <= end; i += inc)
+                {
+                    std::ostringstream sout;
+                    sout << std::setfill('0') << std::right << std::setw(2) << i;
+                    regelems.push_back(sout.str());
+                }
+            }
+            regstr += "(" + join_string(regelems, "|") + ")";
+        }
+
+        if (std::regex_match(now, std::regex(regstr)))
+            return true;
+
+        return false;
+    };
+
+    void worker()
+    {
+        while (1)
+        {
+            if (checktime())
+            {
+                split();
+                Sleep(60000);
+            }
+
+            Sleep(1000);
+        }
+    };
 
     int start()
     {
@@ -117,13 +228,13 @@ public:
 
         if (udp.socket > 0)
         {
-//            shutdown(udp.socket, SD_BOTH);
+            //            shutdown(udp.socket, SD_BOTH);
             closesocket(udp.socket);
         }
 
         if (tcp.socket > 0)
         {
-//            shutdown(udp.socket, SD_BOTH);
+            //            shutdown(udp.socket, SD_BOTH);
             closesocket(tcp.socket);
         }
 
@@ -152,12 +263,12 @@ public:
             return -1;
         };
 
-        result = CoCreateInstance(CLSID_CBMDStreamingDiscovery_v10_8, NULL, CLSCTX_ALL, IID_IBMDStreamingDiscovery, (void**)&m_streamingDiscovery);
+        result = CoCreateInstance(CLSID_CBMDStreamingDiscovery_v10_8, NULL, CLSCTX_ALL, IID_IBMDStreamingDiscovery, (void **)&m_streamingDiscovery);
         if (FAILED(result))
         {
             fprintf(stderr, "%s:%d ERROR! Failed to create streaming discovery (v10_8)\n", __FUNCTION__, __LINE__);
 
-            result = CoCreateInstance(CLSID_CBMDStreamingDiscovery, NULL, CLSCTX_ALL, IID_IBMDStreamingDiscovery, (void**)&m_streamingDiscovery);
+            result = CoCreateInstance(CLSID_CBMDStreamingDiscovery, NULL, CLSCTX_ALL, IID_IBMDStreamingDiscovery, (void **)&m_streamingDiscovery);
             if (FAILED(result))
             {
                 fprintf(stderr, "%s:%d ERROR! Failed to create streaming discovery (current)\n", __FUNCTION__, __LINE__);
@@ -166,7 +277,7 @@ public:
         };
 
         /* file to save */
-        if(!strcmp(file.filename, "-"))
+        if (!strcmp(file.filename, "-"))
         {
             file.stdout_descriptor = stdout;
             _setmode(_fileno(file.stdout_descriptor), O_BINARY);
@@ -184,7 +295,7 @@ public:
         else
         {
             fprintf(stderr, "%s:%d ERROR! Filename to save not specified, either specify file name directlry or provide -savefile flag\n",
-                __FUNCTION__, __LINE__);
+                    __FUNCTION__, __LINE__);
             return -1;
         }
 
@@ -201,7 +312,7 @@ public:
         /* open udp socket */
         if (udp.port && udp.host[0])
         {
-            char* tmp;
+            char *tmp;
             struct in_addr *tmp_in_addr;
             struct sockaddr_in saddr;
             struct hostent *host_ip;
@@ -233,7 +344,7 @@ public:
             /* setup source address */
             memset(&saddr, 0, sizeof(struct sockaddr_in));
             saddr.sin_family = PF_INET;
-            saddr.sin_port = htons(0); // Use the first free port
+            saddr.sin_port = htons(0);                 // Use the first free port
             saddr.sin_addr.s_addr = htonl(INADDR_ANY); // bind socket to any interface
             r = bind(udp.socket, (struct sockaddr *)&saddr, sizeof(struct sockaddr_in));
             if (INVALID_SOCKET == r)
@@ -245,7 +356,7 @@ public:
 
             /* prepare address */
             udp.addr.sin_family = AF_INET;
-            tmp_in_addr = (struct in_addr*)host_ip->h_addr_list[0];
+            tmp_in_addr = (struct in_addr *)host_ip->h_addr_list[0];
             tmp = inet_ntoa(*tmp_in_addr);
             udp.addr.sin_addr.s_addr = inet_addr(tmp);
             udp.addr.sin_port = htons((unsigned short)udp.port);
@@ -264,24 +375,24 @@ public:
 
                 // Set the outgoing interface to DEFAULT
                 r = setsockopt(udp.socket, IPPROTO_IP, IP_MULTICAST_IF,
-                    (const char *)&iaddr, sizeof(struct in_addr));
+                               (const char *)&iaddr, sizeof(struct in_addr));
                 if (SOCKET_ERROR == r)
                     fprintf(stderr, "%s:%d ERROR! setsockopt failed with %d\n",
-                        __FUNCTION__, __LINE__, WSAGetLastError());
+                            __FUNCTION__, __LINE__, WSAGetLastError());
 
                 // Set multicast packet TTL to 3; default TTL is 1
                 r = setsockopt(udp.socket, IPPROTO_IP, IP_MULTICAST_TTL,
-                    (const char *)&ttl, sizeof(unsigned char));
+                               (const char *)&ttl, sizeof(unsigned char));
                 if (SOCKET_ERROR == r)
                     fprintf(stderr, "%s:%d ERROR! setsockopt failed with %d\n",
-                        __FUNCTION__, __LINE__, WSAGetLastError());
+                            __FUNCTION__, __LINE__, WSAGetLastError());
 
                 // send multicast traffic to myself too
                 r = setsockopt(udp.socket, IPPROTO_IP, IP_MULTICAST_LOOP,
-                    (const char *)&one, sizeof(unsigned char));
+                               (const char *)&one, sizeof(unsigned char));
                 if (SOCKET_ERROR == r)
                     fprintf(stderr, "%s:%d ERROR! setsockopt failed with %d\n",
-                        __FUNCTION__, __LINE__, WSAGetLastError());
+                            __FUNCTION__, __LINE__, WSAGetLastError());
             };
 
             if (udp.sndbuf)
@@ -294,7 +405,7 @@ public:
         /* open tcp socket */
         if (tcp.port && tcp.host[0])
         {
-            char* tmp;
+            char *tmp;
             struct in_addr *tmp_in_addr;
             struct sockaddr_in saddr;
             struct hostent *host_ip;
@@ -321,7 +432,7 @@ public:
             }
 
             /* setup address */
-            tmp_in_addr = (struct in_addr*)host_ip->h_addr_list[0];
+            tmp_in_addr = (struct in_addr *)host_ip->h_addr_list[0];
             tmp = inet_ntoa(*tmp_in_addr);
 
             memset(&saddr, 0, sizeof(struct sockaddr_in));
@@ -344,24 +455,23 @@ public:
             };
         }
 
-
         return 0;
     };
-    
+
     int split()
     {
-        if(!strcmp(file.filename, "-"))
+        if (!strcmp(file.filename, "-"))
         {
-           return 0;
+            return 0;
         }
-        else if(file.format[0])
+        else if (file.format[0])
         {
-            if (file.descriptor) 
+            if (file.descriptor)
             {
                 fclose(file.descriptor);
 
                 time_t ltime;
-                struct tm* rtime;
+                struct tm *rtime;
 
                 /* check if log file should be rotated */
                 time(&ltime);
@@ -387,8 +497,7 @@ public:
     {
         int i;
 
-        fprintf
-        (
+        fprintf(
             stderr,
             "Usage:\n"
             "    bmd_h264_cat.exe <args> [- | filename]\n"
@@ -408,34 +517,34 @@ public:
             "    -src-height <INT>\n"
             "    -dst-width <INT>   destination width\n"
             "    -dst-height <INT>  destination height\n"
-            "    -segment <STR>     save as a segmented file in strftime format\n"
+            "    -segment <STR>     save segmented files, strftime format\n"
+            "    -time-split <STR>  split by time, cron expressions\n"
             "    -savefile          save files timestamped\n"
             "    -udp-host <STR>    host where sent UDP packet\n"
             "    -udp-port <INT>    port where sent UDP packet\n"
             "    -udp-sndbuf <INT>  SO_SNDBUF of UDP socket\n"
             "    -tcp-host <STR>    host where sent TCP packet\n"
             "    -tcp-port <INT>    port where sent TCP packet\n"
-            "    -tcp-sndbuf <INT>  SO_SNDBUF of TCP socket\n"
-        );
+            "    -tcp-sndbuf <INT>  SO_SNDBUF of TCP socket\n");
 
         fprintf(stderr, "Framerates:");
         for (i = 0; BMDStreamingEncodingFrameRate_pairs[i]; i += 2)
-            fprintf(stderr, " [%s]", (char*)BMDStreamingEncodingFrameRate_pairs[i + 1]);
+            fprintf(stderr, " [%s]", (char *)BMDStreamingEncodingFrameRate_pairs[i + 1]);
         fprintf(stderr, "\n");
 
         fprintf(stderr, "Entropyies:");
         for (i = 0; BMDStreamingH264EntropyCoding_pairs[i]; i += 2)
-            fprintf(stderr, " [%s]", (char*)BMDStreamingH264EntropyCoding_pairs[i + 1]);
+            fprintf(stderr, " [%s]", (char *)BMDStreamingH264EntropyCoding_pairs[i + 1]);
         fprintf(stderr, "\n");
 
         fprintf(stderr, "Levels:");
         for (i = 0; BMDStreamingH264Level_pairs[i]; i += 2)
-            fprintf(stderr, " [%s]", (char*)BMDStreamingH264Level_pairs[i + 1]);
+            fprintf(stderr, " [%s]", (char *)BMDStreamingH264Level_pairs[i + 1]);
         fprintf(stderr, "\n");
 
         fprintf(stderr, "Profiles:");
         for (i = 0; BMDStreamingH264Profile_pairs[i]; i += 2)
-            fprintf(stderr, " [%s]", (char*)BMDStreamingH264Profile_pairs[i + 1]);
+            fprintf(stderr, " [%s]", (char *)BMDStreamingH264Profile_pairs[i + 1]);
         fprintf(stderr, "\n");
     }
 
@@ -471,46 +580,47 @@ public:
             else PARAM1_CHAR_NA("-tcp-host", tcp.host)
             else PARAM1_INT_NA("-tcp-port", tcp.port)
             else PARAM1_INT_NA("-tcp-sndbuf", tcp.sndbuf)
+            else PARAM1_CHAR_NA("-time-split", m_Expressions)
             else if (!strcmp("-segment", argv[i]))
             {
-                i++;  
-                strncpy(file.format, argv[i], PATH_MAX); //"PREFIX_%Y%m%d-%H%M%S.ts"
+            i++;
+            strncpy(file.format, argv[i], PATH_MAX); //"PREFIX_%Y%m%d-%H%M%S.ts"
 
-                time_t ltime;
-                struct tm *rtime;
+            time_t ltime;
+            struct tm* rtime;
 
-                /* check if log file should be rotated */
-                time(&ltime);
+            /* check if log file should be rotated */
+            time(&ltime);
 
-                /* date to filename */
-                rtime = localtime(&ltime);
-                strftime(file.filename, MAX_PATH, file.format, rtime);
+            /* date to filename */
+            rtime = localtime(&ltime);
+            strftime(file.filename, MAX_PATH, file.format, rtime);
             }
             else if (!strcmp("-savefile", argv[i]))
             {
-                time_t ltime;
-                struct tm *rtime;
+            time_t ltime;
+            struct tm* rtime;
 
-                /* check if log file should be rotated */
-                time(&ltime);
+            /* check if log file should be rotated */
+            time(&ltime);
 
-                /* date to filename */
-                rtime = localtime(&ltime);
-                strftime(file.filename, MAX_PATH, "%Y%m%d_%H%M%S.ts", rtime);
+            /* date to filename */
+            rtime = localtime(&ltime);
+            strftime(file.filename, MAX_PATH, "%Y%m%d_%H%M%S.ts", rtime);
             }
             else if (!strcmp("-h", argv[i]))
             {
-                print_usage();
-                return -1;
+            print_usage();
+            return -1;
             }
             else
-                strncpy(file.filename, argv[i], sizeof(file.filename));
+            strncpy(file.filename, argv[i], sizeof(file.filename));
         }
 
         return 0;
     };
 
-    CStreamingOutput(int argc, char** argv)
+    CStreamingOutput(int argc, char **argv)
     {
         p1 = 0;
         m_playing = false;
@@ -519,19 +629,26 @@ public:
         m_streamingDeviceInput = NULL;
         m_PresetAlter = m_AudioBitrateKbs = m_VideoBitrateKbs = 0;
         m_SrcX = m_SrcY = m_SrcWidth = m_SrcHeight = m_DstWidth = m_DstHeight = m_AudioSampleRate = m_AudioChannelCount = 0;
-        m_Level[0] = m_FrameRate[0] = m_Preset[0] = m_Profile[0] = m_Entropy[0] = 0;
+        m_Level[0] = m_FrameRate[0] = m_Preset[0] = m_Profile[0] = m_Entropy[0] = m_Expressions[0] = 0;
         memset(&udp, 0, sizeof(udp));
         memset(&tcp, 0, sizeof(tcp));
         memset(&file, 0, sizeof(file));
 
-        if(load_args(argc, argv))
+        if (load_args(argc, argv))
             exit(0);
 
-        if(!file.filename[0])
+        if (!file.filename[0])
         {
             print_usage();
             exit(0);
         };
+
+        std::regex regex(R"((\S+\s){4}\S+)");
+        if (m_Expressions[0] && !std::regex_match(m_Expressions, regex))
+        {
+            print_usage();
+            exit(0);
+        }
     };
 
     ~CStreamingOutput()
@@ -543,7 +660,7 @@ public:
 public:
     // IUknown
     // We need to correctly implement QueryInterface, but not the AddRef/Release
-    virtual HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, LPVOID* ppv)
+    virtual HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, LPVOID *ppv)
     {
         HRESULT result = E_NOINTERFACE;
 
@@ -553,19 +670,19 @@ public:
 
         if (iid == IID_IUnknown)
         {
-            *ppv = static_cast<IUnknown*>(static_cast<IBMDStreamingDeviceNotificationCallback*>(this));
+            *ppv = static_cast<IUnknown *>(static_cast<IBMDStreamingDeviceNotificationCallback *>(this));
             AddRef();
             result = S_OK;
         }
         else if (iid == IID_IBMDStreamingDeviceNotificationCallback)
         {
-            *ppv = static_cast<IBMDStreamingDeviceNotificationCallback*>(this);
+            *ppv = static_cast<IBMDStreamingDeviceNotificationCallback *>(this);
             AddRef();
             result = S_OK;
         }
         else if (iid == IID_IBMDStreamingH264InputCallback)
         {
-            *ppv = static_cast<IBMDStreamingH264InputCallback*>(this);
+            *ppv = static_cast<IBMDStreamingH264InputCallback *>(this);
             AddRef();
             result = S_OK;
         }
@@ -578,7 +695,7 @@ public:
 
 public:
     // IBMDStreamingDeviceNotificationCallback
-    virtual HRESULT STDMETHODCALLTYPE StreamingDeviceArrived(IDeckLink* device)
+    virtual HRESULT STDMETHODCALLTYPE StreamingDeviceArrived(IDeckLink *device)
     {
         HRESULT result;
 
@@ -592,7 +709,7 @@ public:
         }
 
         // See if it can do input:
-        result = device->QueryInterface(IID_IBMDStreamingDeviceInput, (void**)&m_streamingDeviceInput);
+        result = device->QueryInterface(IID_IBMDStreamingDeviceInput, (void **)&m_streamingDeviceInput);
         if (FAILED(result))
         {
             // This device doesn't support input. We can ignore this device.
@@ -611,8 +728,8 @@ public:
         // if that's what it wants.
         // Note, although you may be tempted to cast directly to an IUnknown, it's
         // not particular safe, and is invalid COM.
-        IUnknown* ourCallbackDelegate;
-        this->QueryInterface(IID_IUnknown, (void**)&ourCallbackDelegate);
+        IUnknown *ourCallbackDelegate;
+        this->QueryInterface(IID_IUnknown, (void **)&ourCallbackDelegate);
         //
         result = m_streamingDeviceInput->SetCallback(ourCallbackDelegate);
         //
@@ -633,7 +750,7 @@ public:
         return S_OK;
     };
 
-    virtual HRESULT STDMETHODCALLTYPE StreamingDeviceRemoved(IDeckLink* device)
+    virtual HRESULT STDMETHODCALLTYPE StreamingDeviceRemoved(IDeckLink *device)
     {
         // These messages will happen on the main loop as a result
         // of the message pump.
@@ -652,10 +769,10 @@ public:
         return S_OK;
     };
 
-    virtual HRESULT STDMETHODCALLTYPE StreamingDeviceModeChanged(IDeckLink* device, BMDStreamingDeviceMode mode)
+    virtual HRESULT STDMETHODCALLTYPE StreamingDeviceModeChanged(IDeckLink *device, BMDStreamingDeviceMode mode)
     {
         fprintf(stderr, "%s: [%s]\n", __FUNCTION__,
-            BMDStreamingDeviceMode_to_str((BMDStreamingDeviceMode)mode));
+                BMDStreamingDeviceMode_to_str((BMDStreamingDeviceMode)mode));
 
         if (mode == m_deviceMode)
             return S_OK;
@@ -667,7 +784,7 @@ public:
         return S_OK;
     };
 
-    virtual HRESULT STDMETHODCALLTYPE StreamingDeviceFirmwareUpdateProgress(IDeckLink* device, unsigned char percent)
+    virtual HRESULT STDMETHODCALLTYPE StreamingDeviceFirmwareUpdateProgress(IDeckLink *device, unsigned char percent)
     {
         fprintf(stderr, "%s: %d%%\n", __FUNCTION__, percent);
         return S_OK;
@@ -675,7 +792,7 @@ public:
 
     void UpdateUIForNewDevice()
     {
-        char* m;
+        char *m;
         BSTR modelName;
         HRESULT hr;
 
@@ -700,7 +817,7 @@ public:
         delete[] m;
 
         // Add video input modes:
-        IDeckLinkDisplayModeIterator* inputModeIterator;
+        IDeckLinkDisplayModeIterator *inputModeIterator;
         if (FAILED(m_streamingDeviceInput->GetVideoInputModeIterator(&inputModeIterator)))
         {
             fprintf(stderr, "%s: ERROR, GetVideoInputModeIterator failed\n", __FUNCTION__);
@@ -714,7 +831,7 @@ public:
             return;
         }
 
-        IDeckLinkDisplayMode* inputMode;
+        IDeckLinkDisplayMode *inputMode;
         while (inputModeIterator->Next(&inputMode) == S_OK)
         {
             BSTR modeName;
@@ -739,12 +856,12 @@ public:
 
         SAFE_RELEASE(inputModeIterator);
 
-        IBMDStreamingVideoEncodingModePresetIterator* presetIterator;
+        IBMDStreamingVideoEncodingModePresetIterator *presetIterator;
 
         if (SUCCEEDED(m_streamingDeviceInput->GetVideoEncodingModePresetIterator(currentInputModeValue, &presetIterator)))
         {
             int f_preset_done = 0;
-            IBMDStreamingVideoEncodingMode* encodingMode = NULL;
+            IBMDStreamingVideoEncodingMode *encodingMode = NULL;
             BSTR encodingModeName;
 
             while (presetIterator->Next(&encodingMode) == S_OK && !f_preset_done)
@@ -774,12 +891,12 @@ public:
             SAFE_RELEASE(presetIterator);
         }
 
-        IBMDStreamingVideoEncodingMode* currentVideoEncodingMode;
+        IBMDStreamingVideoEncodingMode *currentVideoEncodingMode;
         if (SUCCEEDED(m_streamingDeviceInput->GetVideoEncodingMode(&currentVideoEncodingMode)))
         {
-            char* ms;
+            char *ms;
             long long l;
-            IBMDStreamingMutableVideoEncodingMode* m = NULL;
+            IBMDStreamingMutableVideoEncodingMode *m = NULL;
             if (m_PresetAlter)
             {
                 if (S_OK != currentVideoEncodingMode->CreateMutableVideoEncodingMode(&m))
@@ -797,10 +914,10 @@ public:
 
             /* source rect update */
             fprintf(stderr, "%s: ENCODING: source=[%d, %d, %d, %d]", __FUNCTION__,
-                currentVideoEncodingMode->GetSourcePositionX(),
-                currentVideoEncodingMode->GetSourcePositionY(),
-                currentVideoEncodingMode->GetSourceWidth(),
-                currentVideoEncodingMode->GetSourceHeight());
+                    currentVideoEncodingMode->GetSourcePositionX(),
+                    currentVideoEncodingMode->GetSourcePositionY(),
+                    currentVideoEncodingMode->GetSourceWidth(),
+                    currentVideoEncodingMode->GetSourceHeight());
             if (m && m_SrcWidth && m_SrcHeight)
             {
                 fprintf(stderr, " => [%d, %d, %d, %d]", m_SrcX, m_SrcY, m_SrcWidth, m_SrcHeight);
@@ -811,8 +928,8 @@ public:
 
             /* destination width */
             fprintf(stderr, "%s: ENCODING: destination=[%d, %d]", __FUNCTION__,
-                currentVideoEncodingMode->GetDestWidth(),
-                currentVideoEncodingMode->GetDestHeight());
+                    currentVideoEncodingMode->GetDestWidth(),
+                    currentVideoEncodingMode->GetDestHeight());
             if (m && m_DstWidth && m_DstHeight)
             {
                 fprintf(stderr, " => [%d, %d]", m_DstWidth, m_DstHeight);
@@ -887,14 +1004,14 @@ public:
             else
             {
                 fprintf(stderr, "%s: ENCODING: H264Level=[%s]", __FUNCTION__,
-                    BMDStreamingH264Level_to_str((BMDStreamingH264Level)l));
+                        BMDStreamingH264Level_to_str((BMDStreamingH264Level)l));
                 if (m && m_Level[0])
                 {
-                    if(BMDStreamingH264Level_from_str(m_Level))
+                    if (BMDStreamingH264Level_from_str(m_Level))
                     {
                         fprintf(stderr, " => [%s]", m_Level);
                         if (S_OK != m->SetInt(bmdStreamingEncodingPropertyH264Level,
-                            BMDStreamingH264Level_from_str(m_Level)))
+                                              BMDStreamingH264Level_from_str(m_Level)))
                             fprintf(stderr, " FAILED");
                     }
                     else
@@ -909,14 +1026,14 @@ public:
             else
             {
                 fprintf(stderr, "%s: ENCODING: H264Profile=[%s]", __FUNCTION__,
-                    BMDStreamingH264Profile_to_str((BMDStreamingH264Profile)l, "UNKNOWN"));
+                        BMDStreamingH264Profile_to_str((BMDStreamingH264Profile)l, "UNKNOWN"));
                 if (m && m_Profile[0])
                 {
                     if (BMDStreamingH264Profile_from_str(m_Profile))
                     {
                         fprintf(stderr, " => [%s]", m_Profile);
                         if (S_OK != m->SetInt(bmdStreamingEncodingPropertyH264Profile,
-                            BMDStreamingH264Profile_from_str(m_Profile)))
+                                              BMDStreamingH264Profile_from_str(m_Profile)))
                             fprintf(stderr, " FAILED");
                     }
                     else
@@ -931,19 +1048,18 @@ public:
             else
             {
                 fprintf(stderr, "%s: ENCODING: H264EntropyCoding=[%s]", __FUNCTION__,
-                    BMDStreamingH264EntropyCoding_to_str((BMDStreamingH264EntropyCoding)l, "UNKNOWN"));
+                        BMDStreamingH264EntropyCoding_to_str((BMDStreamingH264EntropyCoding)l, "UNKNOWN"));
                 if (m && m_Entropy[0])
                 {
                     if (BMDStreamingH264EntropyCoding_from_str(m_Entropy))
                     {
                         fprintf(stderr, " => [%s]", m_Entropy);
                         if (S_OK != m->SetInt(bmdStreamingEncodingPropertyH264EntropyCoding,
-                            BMDStreamingH264EntropyCoding_from_str(m_Entropy)))
+                                              BMDStreamingH264EntropyCoding_from_str(m_Entropy)))
                             fprintf(stderr, " FAILED");
                     }
                     else
                         fprintf(stderr, " NOT RECOGNIZED [%s]", m_Entropy);
-
                 };
             };
             fprintf(stderr, "\n");
@@ -954,19 +1070,18 @@ public:
             else
             {
                 fprintf(stderr, "%s: ENCODING: FrameRate=[%s]", __FUNCTION__,
-                    BMDStreamingEncodingFrameRate_to_str((BMDStreamingEncodingFrameRate)l, "UNKNOWN"));
+                        BMDStreamingEncodingFrameRate_to_str((BMDStreamingEncodingFrameRate)l, "UNKNOWN"));
                 if (m && m_FrameRate[0])
                 {
                     if (BMDStreamingEncodingFrameRate_from_str(m_FrameRate))
                     {
                         fprintf(stderr, " => [%s]", m_FrameRate);
                         if (S_OK != m->SetInt(bmdStreamingEncodingPropertyVideoFrameRate,
-                            BMDStreamingEncodingFrameRate_from_str(m_FrameRate)))
+                                              BMDStreamingEncodingFrameRate_from_str(m_FrameRate)))
                             fprintf(stderr, " FAILED");
                     }
                     else
                         fprintf(stderr, " NOT RECOGNIZED [%s]", m_FrameRate);
-
                 };
             };
             fprintf(stderr, "\n");
@@ -975,14 +1090,14 @@ public:
             if (m)
             {
                 BMDStreamingEncodingSupport supp;
-                IBMDStreamingVideoEncodingMode* m_new = NULL;
+                IBMDStreamingVideoEncodingMode *m_new = NULL;
 
                 hr = m_streamingDeviceInput->DoesSupportVideoEncodingMode(currentInputModeValue, m, &supp, &m_new);
                 if (S_OK != hr)
                     fprintf(stderr, "%s: ERROR, DoesSupportVideoEncodingMode failed\n", __FUNCTION__);
                 else
                 {
-                    IBMDStreamingVideoEncodingMode* m_sup = NULL;
+                    IBMDStreamingVideoEncodingMode *m_sup = NULL;
 
                     if (supp == bmdStreamingEncodingModeNotSupported)
                         fprintf(stderr, "%s: ERROR, Altered mode not supported\n", __FUNCTION__);
@@ -997,14 +1112,14 @@ public:
                         m_sup = m_new;
 
                         fprintf(stderr, "%s: ALTERED ENCODING: source=[%d, %d, %d, %d]\n", __FUNCTION__,
-                            m_new->GetSourcePositionX(),
-                            m_new->GetSourcePositionY(),
-                            m_new->GetSourceWidth(),
-                            m_new->GetSourceHeight());
+                                m_new->GetSourcePositionX(),
+                                m_new->GetSourcePositionY(),
+                                m_new->GetSourceWidth(),
+                                m_new->GetSourceHeight());
 
                         fprintf(stderr, "%s: ALTERED ENCODING: destination=[%d, %d]\n", __FUNCTION__,
-                            m_new->GetDestWidth(),
-                            m_new->GetDestHeight());
+                                m_new->GetDestWidth(),
+                                m_new->GetDestHeight());
 
                         if (S_OK != m_new->GetInt(bmdStreamingEncodingPropertyVideoBitRateKbps, &l))
                             fprintf(stderr, "%s: bmdStreamingEncodingPropertyVideoBitRateKbps failed\n", __FUNCTION__);
@@ -1038,21 +1153,21 @@ public:
                             fprintf(stderr, "%s: bmdStreamingEncodingPropertyH264Level failed\n", __FUNCTION__);
                         else
                             fprintf(stderr, "%s: ALTERED ENCODING: H264Level=[%s]\n", __FUNCTION__,
-                                BMDStreamingH264Level_to_str((BMDStreamingH264Level)l));
+                                    BMDStreamingH264Level_to_str((BMDStreamingH264Level)l));
 
                         /* Profile */
                         if (S_OK != m_new->GetInt(bmdStreamingEncodingPropertyH264Profile, &l))
                             fprintf(stderr, "%s: bmdStreamingEncodingPropertyH264Profile failed\n", __FUNCTION__);
                         else
                             fprintf(stderr, "%s: ALTERED ENCODING: H264Profile=[%s]\n", __FUNCTION__,
-                                BMDStreamingH264Profile_to_str((BMDStreamingH264Profile)l, "UNKNOWN"));
+                                    BMDStreamingH264Profile_to_str((BMDStreamingH264Profile)l, "UNKNOWN"));
 
                         /* Entropy */
                         if (S_OK != m_new->GetInt(bmdStreamingEncodingPropertyH264EntropyCoding, &l))
                             fprintf(stderr, "%s: bmdStreamingEncodingPropertyH264EntropyCoding failed\n", __FUNCTION__);
                         else
                             fprintf(stderr, "%s: ALTERED ENCODING: H264EntropyCoding=[%s]\n", __FUNCTION__,
-                                BMDStreamingH264EntropyCoding_to_str((BMDStreamingH264EntropyCoding)l, "UNKNOWN"));
+                                    BMDStreamingH264EntropyCoding_to_str((BMDStreamingH264EntropyCoding)l, "UNKNOWN"));
                     };
 
                     if (m_sup)
@@ -1073,7 +1188,7 @@ public:
             SAFE_RELEASE(currentVideoEncodingMode);
         };
     };
-    
+
     void UpdateUIForNoDevice()
     {
         fprintf(stderr, "%s\n", __FUNCTION__);
@@ -1099,7 +1214,7 @@ public:
 
 public:
     // IBMDStreamingH264InputCallback
-    virtual HRESULT STDMETHODCALLTYPE H264NALPacketArrived(IBMDStreamingH264NALPacket* nalPacket)
+    virtual HRESULT STDMETHODCALLTYPE H264NALPacketArrived(IBMDStreamingH264NALPacket *nalPacket)
     {
 #if 0
         static unsigned char pp[] = { '/', '|', '\\', '-' };
@@ -1114,16 +1229,16 @@ public:
 #endif
         return S_OK;
     };
-    virtual HRESULT STDMETHODCALLTYPE H264AudioPacketArrived(IBMDStreamingAudioPacket* audioPacket){ return S_OK; };
-    virtual HRESULT STDMETHODCALLTYPE MPEG2TSPacketArrived(IBMDStreamingMPEG2TSPacket* mpeg2TSPacket)
+    virtual HRESULT STDMETHODCALLTYPE H264AudioPacketArrived(IBMDStreamingAudioPacket *audioPacket) { return S_OK; };
+    virtual HRESULT STDMETHODCALLTYPE MPEG2TSPacketArrived(IBMDStreamingMPEG2TSPacket *mpeg2TSPacket)
     {
-        static unsigned char pp[] = { '/', '|', '\\', '-' };
+        static unsigned char pp[] = {'/', '|', '\\', '-'};
         long s = mpeg2TSPacket->GetPayloadSize();
-        void* data;
+        void *data;
 
         mpeg2TSPacket->GetBytes(&data);
 
-        if(!(p1 % DIV_RATIO))
+        if (!(p1 % DIV_RATIO))
         {
             fprintf(stderr, "%s: %5d bytes %c\r", __FUNCTION__, s, pp[(p1 / DIV_RATIO) % 4]);
         };
@@ -1143,20 +1258,19 @@ public:
         {
             memcpy(udp.buf + 188 * udp.idx++, data, s);
 
-            if(7 == udp.idx)
+            if (7 == udp.idx)
             {
                 int l, r;
 
                 /* send datagram */
                 l = sizeof(struct sockaddr_in);
-                r = sendto
-                (
-                    udp.socket,                     /* Socket to send result */
-                    (const char*)udp.buf,           /* The datagram buffer */
-                    188 * 7,                        /* The datagram lngth */
-                    0,                              /* Flags: no options */
-                    (struct sockaddr *)&udp.addr,   /* addr */
-                    l                               /* Server address length */
+                r = sendto(
+                    udp.socket,                   /* Socket to send result */
+                    (const char *)udp.buf,        /* The datagram buffer */
+                    188 * 7,                      /* The datagram lngth */
+                    0,                            /* Flags: no options */
+                    (struct sockaddr *)&udp.addr, /* addr */
+                    l                             /* Server address length */
                 );
 
                 udp.idx = 0;
@@ -1166,13 +1280,13 @@ public:
         /* send to TCP */
         if (tcp.socket > 0)
         {
-            send(tcp.socket, (const char*)data, s, 0);
+            send(tcp.socket, (const char *)data, s, 0);
         };
 
         return S_OK;
     };
-    virtual HRESULT STDMETHODCALLTYPE H264VideoInputConnectorScanningChanged(void){ return E_NOTIMPL; };
-    virtual HRESULT STDMETHODCALLTYPE H264VideoInputConnectorChanged(void){ return E_NOTIMPL; };
+    virtual HRESULT STDMETHODCALLTYPE H264VideoInputConnectorScanningChanged(void) { return E_NOTIMPL; };
+    virtual HRESULT STDMETHODCALLTYPE H264VideoInputConnectorChanged(void) { return E_NOTIMPL; };
     virtual HRESULT STDMETHODCALLTYPE H264VideoInputModeChanged(void)
     {
         fprintf(stderr, "%s!\n", __FUNCTION__);
@@ -1191,7 +1305,7 @@ public:
     };
 };
 
-int main(int argc, char** argv)
+int main(int argc, char **argv)
 {
     //Disable QuickEditMode
     DWORD dwMode;
@@ -1199,7 +1313,7 @@ int main(int argc, char** argv)
     GetConsoleMode(hConsoleHandle, &dwMode);
     SetConsoleMode(hConsoleHandle, dwMode & ~ENABLE_QUICK_EDIT_MODE);
 
-    CStreamingOutput* strm;
+    CStreamingOutput *strm;
 
     fprintf(stderr, "bmd_h264_cat built on " __DATE__ " " __TIME__ "\n");
 
@@ -1208,9 +1322,15 @@ int main(int argc, char** argv)
     {
         strm->start();
 
+        if (strm->m_Expressions[0])
+        {
+            std::thread th(&CStreamingOutput::worker, strm);
+            th.detach();
+        }
+
         while (1)
         {
-            int key = toupper( _getch() );
+            int key = toupper(_getch());
             int esc = 0x1b;
             if (key == 'S')
             {
@@ -1219,11 +1339,10 @@ int main(int argc, char** argv)
             else if (key == 'Q' || key == esc)
             {
                 break;
-            }            
-        }        
+            }
+        }
 
         strm->stop();
-
         strm->release();
     }
     delete strm;
