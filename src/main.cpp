@@ -48,7 +48,7 @@
 #include "BMDStreamingH264Level.h"
 #include "BMDStreamingH264Profile.h"
 
-#include "croncpp.h" // https://github.com/mariusbancila/croncpp
+#include "../croncpp/include/croncpp.h"
 
 static int f_socket_init = 0;
 
