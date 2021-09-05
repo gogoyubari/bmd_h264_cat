@@ -155,6 +155,7 @@
     <ClInclude Include="src\BMDStreamingH264Level.h" />
     <ClInclude Include="src\BMDStreamingH264Profile.h" />
     <ClInclude Include="src\const_str.h" />
+    <ClInclude Include="src\croncpp.h" />
   </ItemGroup>
   <ItemGroup>
     <Midl Include="..\Blackmagic DeckLink SDK 10.11.4\Win\include\DeckLinkAPI.idl" />

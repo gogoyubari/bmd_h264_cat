@@ -3,4 +3,5 @@
 bmd_h264_cat.vcxproj.user
 DeckLinkAPI_h.h
 DeckLinkAPI_i.c
+croncpp.h
 /x64

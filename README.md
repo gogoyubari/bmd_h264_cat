@@ -36,8 +36,8 @@ Where args are:
     -src-height &lt;INT&gt;
     -dst-width &lt;INT&gt;   destination width
     -dst-height &lt;INT&gt;  destination height
-    -segment &lt;STR&gt;     save segmented files, strftime format
-    -time-split &lt;STR&gt;  split by time, cron expressions
+    -savesegment &lt;STR&gt; save segmented files strftime format
+    -cron &lt;STR&gt;        split CRON expressions
     -savefile          save files timestamped
     -udp-host &lt;STR&gt;    host where sent UDP packet
     -udp-port &lt;INT&gt;    port where sent UDP packet
@@ -84,6 +84,13 @@ if you have no this version or patch not applied then you have to re-encode audi
 
 ## -savefile
 is argument that could save receivied stream into auto-timestamp-named file - that could helps to avoid loosing some files
+
+## CRON expressions
+A CRON expression is a string composed of six fields (in some implementation seven) separated by a whites space representing a time schedule. The general form is the following (with the years being optional):
+<pre>
+&lt;seconds&gt; &lt;minutes&gt; &lt;hours&gt; &lt;days of month&gt; &lt;months&gt; &lt;days of week&gt; &lt;years&gt;
+</pre>
+* https://github.com/mariusbancila/croncpp
 
 ## limitation
 not all arguments are really working. API support it, but firmware does not. bitrate, preset, profile parameters works

@@ -48,6 +48,8 @@
 #include "BMDStreamingH264Level.h"
 #include "BMDStreamingH264Profile.h"
 
+#include "croncpp.h" // https://github.com/mariusbancila/croncpp
+
 static int f_socket_init = 0;
 
 class CStreamingOutput : public IBMDStreamingDeviceNotificationCallback,
@@ -91,107 +93,28 @@ public:
         char format[PATH_MAX];
     } file;
 
-    std::vector<std::string> split_string(const std::string &s, char delim)
-    {
-        std::vector<std::string> elems;
-        std::string item;
-        for (char ch : s)
-        {
-            if (ch == delim)
-            {
-                if (!item.empty())
-                    elems.push_back(item);
-                item.clear();
-            }
-            else
-            {
-                item += ch;
-            }
-        }
-        if (!item.empty())
-            elems.push_back(item);
-        return elems;
-    };
-
-    std::string join_string(const std::vector<std::string> &v, const char *delim = 0)
-    {
-        std::string s;
-        if (!v.empty())
-        {
-            s += v[0];
-            for (decltype(v.size()) i = 1, c = v.size(); i < c; ++i)
-            {
-                if (delim)
-                    s += delim;
-                s += v[i];
-            }
-        }
-        return s;
-    };
-
-    bool checktime()
-    {
-        time_t ltime;
-        struct tm *rtime;
-        char now[10];
-
-        time(&ltime);
-        rtime = localtime(&ltime);
-        strftime(now, MAX_PATH, "%M%H%d%m0%w", rtime);
-
-        auto elems = split_string(m_Expressions, ' ');
-
-        std::regex regex(R"(\*)");
-        elems[0] = std::regex_replace(elems[0], regex, "0-59");
-        elems[1] = std::regex_replace(elems[1], regex, "0-23");
-        elems[2] = std::regex_replace(elems[2], regex, "1-31");
-        elems[3] = std::regex_replace(elems[3], regex, "1-12");
-        elems[4] = std::regex_replace(elems[4], regex, "0-6");
-
-        std::string regstr;
-        for (auto elem = elems.begin(); elem != elems.end(); ++elem)
-        {
-            std::vector<std::string> regelems;
-
-            auto subelems = split_string(*elem, ',');
-            for (auto subelem = subelems.begin(); subelem != subelems.end(); ++subelem)
-            {
-                int begin, end, inc;
-
-                auto v = split_string(*subelem, '/');
-                v.size() == 1 ? inc = 1 : inc = std::stoi(v[1]);
-
-                auto range = split_string(v[0], '-');
-                begin = std::stoi(range[0]);
-                range.size() == 1 ? end = std::stoi(range[0]) : end = std::stoi(range[1]);
-
-                for (int i = begin; i <= end; i += inc)
-                {
-                    std::ostringstream sout;
-                    sout << std::setfill('0') << std::right << std::setw(2) << i;
-                    regelems.push_back(sout.str());
-                }
-            }
-            regstr += "(" + join_string(regelems, "|") + ")";
-        }
-
-        if (std::regex_match(now, std::regex(regstr)))
-            return true;
-
-        return false;
-    };
-
-    void worker()
+    void checkcron()
     {
         while (1)
         {
-            if (checktime())
+            try
             {
-                split();
-                Sleep(60000);
-            }
+                auto cron = cron::make_cron(m_Expressions);
 
-            Sleep(1000);
+                time_t now = time(nullptr);
+                time_t next = cron::cron_next(cron, now);
+                std::this_thread::sleep_for(std::chrono::seconds(next - now));
+
+                split();
+            }
+            catch (cron::bad_cronexpr const& ex)
+            {
+                fprintf(stderr, "%s: %s\n", __FUNCTION__, ex.what());
+                stop();
+                release();
+
+                exit(EXIT_FAILURE);
+            }
         }
     };
 
@@ -470,15 +393,9 @@ public:
             {
                 fclose(file.descriptor);
 
-                time_t ltime;
-                struct tm *rtime;
-
-                /* check if log file should be rotated */
-                time(&ltime);
-
-                /* date to filename */
-                rtime = localtime(&ltime);
-                strftime(file.filename, MAX_PATH, file.format, rtime);
+                time_t now = time(nullptr);
+                auto ltime = localtime(&now);
+                strftime(file.filename, MAX_PATH, file.format, ltime);
 
                 file.descriptor = fopen(file.filename, "wb");
                 if (!file.descriptor)
@@ -517,8 +434,8 @@ public:
             "    -src-height <INT>\n"
             "    -dst-width <INT>   destination width\n"
             "    -dst-height <INT>  destination height\n"
-            "    -segment <STR>     save segmented files, strftime format\n"
-            "    -time-split <STR>  split by time, cron expressions\n"
+            "    -savesegment <STR> save segmented files strftime format\n"
+            "    -cron <STR>        split CRON expressions\n"
             "    -savefile          save files timestamped\n"
             "    -udp-host <STR>    host where sent UDP packet\n"
             "    -udp-port <INT>    port where sent UDP packet\n"
@@ -580,8 +497,8 @@ public:
             else PARAM1_CHAR_NA("-tcp-host", tcp.host)
             else PARAM1_INT_NA("-tcp-port", tcp.port)
             else PARAM1_INT_NA("-tcp-sndbuf", tcp.sndbuf)
-            else PARAM1_CHAR_NA("-time-split", m_Expressions)
-            else if (!strcmp("-segment", argv[i]))
+            else PARAM1_CHAR_NA("-cron", m_Expressions)
+            else if (!strcmp("-savesegment", argv[i]))
             {
             i++;
             strncpy(file.format, argv[i], PATH_MAX); //"PREFIX_%Y%m%d-%H%M%S.ts"
@@ -642,13 +559,6 @@ public:
             print_usage();
             exit(0);
         };
-
-        std::regex regex(R"((\S+\s){4}\S+)");
-        if (m_Expressions[0] && !std::regex_match(m_Expressions, regex))
-        {
-            print_usage();
-            exit(0);
-        }
     };
 
     ~CStreamingOutput()
@@ -1324,7 +1234,7 @@ int main(int argc, char **argv)
 
         if (strm->m_Expressions[0])
         {
-            std::thread th(&CStreamingOutput::worker, strm);
+            std::thread th(&CStreamingOutput::checkcron, strm);
             th.detach();
         }
 
