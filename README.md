@@ -19,7 +19,7 @@ Latest working driver is **Desktop Video 10.11.4 (media express 3.5.7)**, see  h
 ## usage
 <pre>
 Usage:
-    bmd_h264_cat.exe &lt;args&gt; [- | filename]
+    bmd_h264_cat.exe &lt;args&gt; [-][filename]
 Where args are:
     -ab &lt;INT&gt;          audio bitrate in kbs
     -vb &lt;INT&gt;          video bitrate in kbs

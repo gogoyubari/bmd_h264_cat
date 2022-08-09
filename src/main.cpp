@@ -91,6 +91,7 @@ public:
         FILE *stdout_descriptor;
         char filename[PATH_MAX];
         char format[PATH_MAX];
+        BOOL pipe;
     } file;
 
     void checkcron()
@@ -200,12 +201,14 @@ public:
         };
 
         /* file to save */
-        if (!strcmp(file.filename, "-"))
+        //if (!strcmp(file.filename, "-"))
+        if (file.pipe)
         {
             file.stdout_descriptor = stdout;
             _setmode(_fileno(file.stdout_descriptor), O_BINARY);
         }
-        else if (file.filename[0])
+        //else if (file.filename[0])
+        if (file.filename[0])
         {
             file.descriptor = fopen(file.filename, "wb");
             if (!file.descriptor)
@@ -215,7 +218,8 @@ public:
             };
             fprintf(stderr, "%s:%d data will be saved to file [%s]\n", __FUNCTION__, __LINE__, file.filename);
         }
-        else
+        //else
+        if (!file.filename[0] && !file.pipe)
         {
             fprintf(stderr, "%s:%d ERROR! Filename to save not specified, either specify file name directlry or provide -savefile flag\n",
                     __FUNCTION__, __LINE__);
@@ -417,7 +421,7 @@ public:
         fprintf(
             stderr,
             "Usage:\n"
-            "    bmd_h264_cat.exe <args> [- | filename]\n"
+            "    bmd_h264_cat.exe <args> [-] [filename]\n"
             "Where args are:\n"
             "    -ab <INT>          audio bitrate in kbs\n"
             "    -vb <INT>          video bitrate in kbs\n"
@@ -530,6 +534,10 @@ public:
             print_usage();
             return -1;
             }
+            else if (!strcmp("-", argv[i])) 
+            {
+            file.pipe = true;
+            }
             else
             strncpy(file.filename, argv[i], sizeof(file.filename));
         }
@@ -554,7 +562,7 @@ public:
         if (load_args(argc, argv))
             exit(0);
 
-        if (!file.filename[0])
+        if (!file.filename[0] && !file.pipe)
         {
             print_usage();
             exit(0);
