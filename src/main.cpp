@@ -92,6 +92,7 @@ public:
         char filename[PATH_MAX];
         char format[PATH_MAX];
         BOOL pipe;
+        BOOL idle;
     } file;
 
     void checkcron()
@@ -201,14 +202,13 @@ public:
         };
 
         /* file to save */
-        //if (!strcmp(file.filename, "-"))
         if (file.pipe)
         {
             file.stdout_descriptor = stdout;
             _setmode(_fileno(file.stdout_descriptor), O_BINARY);
         }
-        //else if (file.filename[0])
-        if (file.filename[0])
+
+        if (file.filename[0] && !file.idle)
         {
             file.descriptor = fopen(file.filename, "wb");
             if (!file.descriptor)
@@ -218,13 +218,6 @@ public:
             };
             fprintf(stderr, "%s:%d data will be saved to file [%s]\n", __FUNCTION__, __LINE__, file.filename);
         }
-        //else
-        /*if (!file.filename[0] && !file.pipe)
-        {
-            fprintf(stderr, "%s:%d ERROR! Filename to save not specified, either specify file name directlry or provide -savefile flag\n",
-                    __FUNCTION__, __LINE__);
-            return -1;
-        }*/
 
         /* init winsock */
         if (!f_socket_init)
@@ -385,6 +378,48 @@ public:
         return 0;
     };
 
+    int record() {
+        if (!strcmp(file.filename, "-"))
+        {
+            return 0;
+        }
+        else if (!file.descriptor) {
+            time_t now = time(nullptr);
+            auto ltime = localtime(&now);
+
+            if (file.format[0]) {
+                strftime(file.filename, MAX_PATH, file.format, ltime);
+            }
+            else
+            {
+                strftime(file.filename, MAX_PATH, "%Y%m%d_%H%M%S.ts", ltime);
+            }
+
+            file.descriptor = fopen(file.filename, "wb");
+            if (!file.descriptor)
+            {
+                fprintf(stderr, "%s:%d ERROR! Failed to open file [%s]\n", __FUNCTION__, __LINE__, file.filename);
+                return -1;
+            };
+            fprintf(stderr, "%s: data will be saved to file [%s]\n", __FUNCTION__, file.filename);
+        }
+
+        return 0;
+    };
+
+    int standby() {
+        if (!strcmp(file.filename, "-"))
+        {
+            return 0;
+        }
+        else if (file.descriptor) {
+            fclose(file.descriptor);
+            file.descriptor = nullptr;
+        }
+
+        return 0;
+    };
+
     int split()
     {
         if (!strcmp(file.filename, "-"))
@@ -441,6 +476,7 @@ public:
             "    -savesegment <STR> save segmented files strftime format\n"
             "    -cron <STR>        split CRON expressions\n"
             "    -savefile          save files timestamped\n"
+            "    -idle              start in idle mode ('R' to start saving files)\n"
             "    -udp-host <STR>    host where sent UDP packet\n"
             "    -udp-port <INT>    port where sent UDP packet\n"
             "    -udp-sndbuf <INT>  SO_SNDBUF of UDP socket\n"
@@ -529,12 +565,15 @@ public:
             rtime = localtime(&ltime);
             strftime(file.filename, MAX_PATH, "%Y%m%d_%H%M%S.ts", rtime);
             }
+            else if (!strcmp("-idle", argv[i])) {
+            file.idle = true;
+            }
             else if (!strcmp("-h", argv[i]))
             {
             print_usage();
             return -1;
             }
-            else if (!strcmp("-", argv[i])) 
+            else if (!strcmp("-", argv[i]))
             {
             file.pipe = true;
             }
@@ -561,12 +600,6 @@ public:
 
         if (load_args(argc, argv))
             exit(0);
-
-        /*if (!file.filename[0] && !file.pipe)
-        {
-            print_usage();
-            exit(0);
-        };*/
     };
 
     ~CStreamingOutput()
@@ -1253,6 +1286,12 @@ int main(int argc, char **argv)
             if (key == 'S')
             {
                 strm->split();
+            }
+            else if (key == 'R') {
+                strm->record();
+            }
+            else if (key == 'E') {
+                strm->standby();
             }
             else if (key == 'Q' || key == esc)
             {
