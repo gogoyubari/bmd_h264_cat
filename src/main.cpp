@@ -219,12 +219,12 @@ public:
             fprintf(stderr, "%s:%d data will be saved to file [%s]\n", __FUNCTION__, __LINE__, file.filename);
         }
         //else
-        if (!file.filename[0] && !file.pipe)
+        /*if (!file.filename[0] && !file.pipe)
         {
             fprintf(stderr, "%s:%d ERROR! Filename to save not specified, either specify file name directlry or provide -savefile flag\n",
                     __FUNCTION__, __LINE__);
             return -1;
-        }
+        }*/
 
         /* init winsock */
         if (!f_socket_init)
@@ -562,11 +562,11 @@ public:
         if (load_args(argc, argv))
             exit(0);
 
-        if (!file.filename[0] && !file.pipe)
+        /*if (!file.filename[0] && !file.pipe)
         {
             print_usage();
             exit(0);
-        };
+        };*/
     };
 
     ~CStreamingOutput()
